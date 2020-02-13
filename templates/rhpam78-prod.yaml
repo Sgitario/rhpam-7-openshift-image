@@ -1138,12 +1138,12 @@ objects:
             value: "/opt/rhpam-smartrouter/data"
           - name: KIE_SERVER_ROUTER_CONFIG_WATCHER_ENABLED
             value: "true"
-          - name: KIE_SERVER_CONTROLLER_USER
+          - name: KIE_ADMIN_USER
             valueFrom:
               secretKeyRef:
                 name: "${CREDENTIALS_SECRET}"
                 key: KIE_ADMIN_USER
-          - name: KIE_SERVER_CONTROLLER_PWD
+          - name: KIE_ADMIN_PWD
             valueFrom:
               secretKeyRef:
                 name: "${CREDENTIALS_SECRET}"
