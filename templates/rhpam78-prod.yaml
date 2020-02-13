@@ -1138,6 +1138,16 @@ objects:
             value: "/opt/rhpam-smartrouter/data"
           - name: KIE_SERVER_ROUTER_CONFIG_WATCHER_ENABLED
             value: "true"
+          - name: KIE_SERVER_CONTROLLER_USER
+            valueFrom:
+              secretKeyRef:
+                name: "${CREDENTIALS_SECRET}"
+                key: KIE_ADMIN_USER
+          - name: KIE_SERVER_CONTROLLER_PWD
+            valueFrom:
+              secretKeyRef:
+                name: "${CREDENTIALS_SECRET}"
+                key: KIE_ADMIN_PWD
           volumeMounts:
           - name: "${APPLICATION_NAME}-smartrouter"
             mountPath: "/opt/rhpam-smartrouter/data"
