@@ -1523,7 +1523,7 @@ objects:
           namespace: "${IMAGE_STREAM_NAMESPACE}"
           name: "${KIE_SERVER_IMAGE_STREAM_NAME}:${IMAGE_STREAM_TAG}"
     - type: ConfigChange
-    replicas: "${{KIE_SERVER_CONTAINER_REPLICAS}}"
+    replicas: 1
     selector:
       deploymentConfig: "${APPLICATION_NAME}-kieserver-2"
     template:
