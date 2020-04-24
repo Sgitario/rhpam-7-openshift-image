@@ -1265,6 +1265,8 @@ objects:
             value: "${APPLICATION_NAME}-kieserver-1"
           - name: KIE_SERVER_ROUTE_NAME
             value: "${APPLICATION_NAME}-kieserver-1"
+          - name: KIE_SERVER_STARTUP_STRATEGY
+            value: "OpenShiftStartupStrategy"
           - name: KIE_SERVER_USE_SECURE_ROUTE_NAME
             value: "${KIE_SERVER1_USE_SECURE_ROUTE_NAME}"
           - name: KIE_SERVER_CONTAINER_DEPLOYMENT
