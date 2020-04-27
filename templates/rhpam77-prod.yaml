@@ -1054,8 +1054,6 @@ objects:
                 key: KIE_ADMIN_PWD
           - name: MAVEN_MIRROR_URL
             value: "${MAVEN_MIRROR_URL}"
-          - name: KIE_SERVER_CONTROLLER_OPENSHIFT_PREFER_KIESERVER_SERVICE
-            value: "false"
           - name: MAVEN_REPO_ID
             value: "${MAVEN_REPO_ID}"
           - name: MAVEN_REPO_URL
