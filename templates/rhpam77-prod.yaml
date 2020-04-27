@@ -296,6 +296,84 @@ parameters:
   name: KIE_SERVER_HTTPS_PASSWORD
   value: mykeystorepass
   required: false
+- displayName: AppFormer JMS Broker user name.
+  description: The user name for connecting to the JMS broker.
+  name: APPFORMER_JMS_BROKER_USER
+  required: true
+  value: jmsBrokerUser
+- displayName: AppFormer JMS Broker password.
+  description: The password to connect to the JMS broker.
+  name: APPFORMER_JMS_BROKER_PASSWORD
+  from: "[a-zA-Z]{6}[0-9]{1}!"
+  generate: expression
+  required: true
+- displayName: DataGrid Image
+  description: DataGrid image.
+  name: DATAGRID_IMAGE
+  value: registry.redhat.io/jboss-datagrid-7/datagrid73-openshift:1.5
+  required: true
+- displayName: DataGrid Container CPU Limit
+  description: DataGrid Container CPU limit.
+  name: DATAGRID_CPU_LIMIT
+  value: "1000m"
+  required: true
+- displayName: DataGrid Container Memory Limit
+  description: DataGrid Container memory limit.
+  name: DATAGRID_MEMORY_LIMIT
+  value: "2Gi"
+  required: true
+- displayName: DataGrid Volume Capacity
+  description: Size of the persistent storage for DataGrid's runtime data.
+  name: DATAGRID_VOLUME_CAPACITY
+  value: "1Gi"
+  required: true
+- description: AMQ Broker Image.
+  displayName: Image
+  name: AMQ_BROKER_IMAGE
+  required: true
+  value: registry.redhat.io/amq7/amq-broker:7.5
+- displayName: AMQ Role
+  description: User role for standard broker user.
+  name: AMQ_ROLE
+  value: admin
+  required: true
+- displayName: AMQ Name
+  description: The name of the broker.
+  name: AMQ_NAME
+  value: broker
+  required: true
+- displayName: AMQ Global Max Size
+  description: Specifies the maximum amount of memory that message data can consume. If no value is specified, half of the system’s memory is allocated.
+  name: AMQ_GLOBAL_MAX_SIZE
+  example: 10 gb
+  required: false
+- displayName: Broker Volume Capacity
+  description: Size of persistent storage for AMQ broker volume.
+  name: AMQ_VOLUME_CAPACITY
+  value: 1Gi
+  required: true
+- description: Number of broker replicas for a cluster.
+  displayName: Number of Replicas
+  name: AMQ_REPLICAS
+  required: true
+  value: "2"
+## OpenShift Enhancement BEGIN
+- displayName: Enable KIE server global discovery
+  description: "If set to true, turns on KIE server global discovery feature (Sets the org.kie.server.controller.openshift.global.discovery.enabled system property)"
+  name: KIE_SERVER_CONTROLLER_OPENSHIFT_GLOBAL_DISCOVERY_ENABLED
+  value: "false"
+  required: false
+- displayName: Prefer KIE Server OpenShift Service
+  description: Enables connection to KIE Server via OpenShift internal Service endpoint. (Sets the org.kie.server.controller.openshift.prefer.kieserver.service system property)
+  name: KIE_SERVER_CONTROLLER_OPENSHIFT_PREFER_KIESERVER_SERVICE
+  value: "true"
+  required: false
+- displayName: KIE ServerTemplate Cache TTL
+  description: KIE ServerTemplate Cache TTL in milliseconds. (Sets the org.kie.server.controller.template.cache.ttl system property)
+  name: KIE_SERVER_CONTROLLER_TEMPLATE_CACHE_TTL
+  value: "5000"
+  required: false
+## OpenShift Enhancement END
 - displayName: KIE Server Bypass Auth User
   description: Allows the KIE server to bypass the authenticated user for task-related operations, for example, queries. (Sets the org.kie.server.bypass.auth.user system property)
   name: KIE_SERVER_BYPASS_AUTH_USER
@@ -668,6 +746,40 @@ objects:
       service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
       description: "The JGroups ping port for clustering."
 ## KIE server services 2 END
+- apiVersion: v1
+  kind: Service
+  spec:
+    clusterIP: None
+    ports:
+    - port: 61616
+      targetPort: 61616
+    selector:
+      deploymentConfig: "${APPLICATION_NAME}-amq"
+  metadata:
+    name: "${APPLICATION_NAME}-amq-tcp"
+    annotations:
+      description: The broker's OpenWire port.
+    labels:
+      application: "${APPLICATION_NAME}"
+      service: "${APPLICATION_NAME}-amq-tcp"
+- apiVersion: v1
+  kind: Service
+  spec:
+    clusterIP: None
+    ports:
+      - port: 8888
+        protocol: TCP
+        targetPort: 8888
+    selector:
+      deploymentConfig: ${APPLICATION_NAME}-amq
+  metadata:
+    name: ping
+    annotations:
+      description: The JGroups ping port for amq clustering.
+      service.alpha.kubernetes.io/tolerate-unready-endpoints: 'true'
+    labels:
+      application: ${APPLICATION_NAME}
+      service: ping
 ## PostgreSQL service 1 BEGIN
 - apiVersion: v1
   kind: Service
@@ -968,6 +1080,18 @@ objects:
             value: "${APPLICATION_NAME}-rhpamcentrmon-ping"
           - name: OPENSHIFT_DNS_PING_SERVICE_PORT
             value: "8888"
+          - name: APPFORMER_INFINISPAN_SERVICE_NAME
+            value: "${APPLICATION_NAME}-datagrid"
+          - name: APPFORMER_INFINISPAN_PORT
+            value: "11222"
+          - name: APPFORMER_JMS_BROKER_ADDRESS
+            value: "${APPLICATION_NAME}-amq-tcp"
+          - name: APPFORMER_JMS_BROKER_PORT
+            value: "61616"
+          - name: APPFORMER_JMS_BROKER_USER
+            value: "${APPFORMER_JMS_BROKER_USER}"
+          - name: APPFORMER_JMS_BROKER_PASSWORD
+            value: "${APPFORMER_JMS_BROKER_PASSWORD}"
           - name: SSO_URL
             value: "${SSO_URL}"
           - name: SSO_OPENIDCONNECT_DEPLOYMENTS
@@ -1422,6 +1546,117 @@ objects:
           name: ${APPLICATION_NAME}-postgresql-init-1
           terminationMessagePolicy: FallbackToLogsOnError
 ## KIE server deployment config 1 END
+- kind: StatefulSet
+  apiVersion: apps/v1
+  metadata:
+    name: ${APPLICATION_NAME}-amq
+    annotations:
+      alpha.image.policy.openshift.io/resolve-names: '*'
+    labels:
+      application: ${APPLICATION_NAME}
+  spec:
+    podManagementPolicy: OrderedReady
+    updateStrategy:
+      rollingUpdate:
+        partition: 0
+      type: RollingUpdate
+    replicas: ${{AMQ_REPLICAS}}
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        deploymentConfig: ${APPLICATION_NAME}-amq
+    serviceName: ${APPLICATION_NAME}-amq-tcp
+    template:
+      metadata:
+        name: ${APPLICATION_NAME}-amq
+        labels:
+          application: ${APPLICATION_NAME}
+          deploymentConfig: ${APPLICATION_NAME}-amq
+      spec:
+        containers:
+        - env:
+          - name: AMQ_USER
+            value: "${APPFORMER_JMS_BROKER_USER}"
+          - name: AMQ_PASSWORD
+            value: "${APPFORMER_JMS_BROKER_PASSWORD}"
+          - name: AMQ_ROLE
+            value: ${AMQ_ROLE}
+          - name: AMQ_NAME
+            value: ${AMQ_NAME}
+          - name: AMQ_TRANSPORTS
+            value: "openwire"
+          - name: AMQ_GLOBAL_MAX_SIZE
+            value: ${AMQ_GLOBAL_MAX_SIZE}
+          - name: AMQ_REQUIRE_LOGIN
+          - name: AMQ_DATA_DIR
+            value: /opt/amq/data
+          - name: AMQ_DATA_DIR_LOGGING
+            value: "true"
+          - name: AMQ_CLUSTERED
+            value: "true"
+          - name: AMQ_REPLICAS
+            value: "${AMQ_REPLICAS}"
+          - name: AMQ_CLUSTER_USER
+            value: ${APPFORMER_JMS_BROKER_USER}
+          - name: AMQ_CLUSTER_PASSWORD
+            value: ${APPFORMER_JMS_BROKER_PASSWORD}
+          - name: AMQ_EXTRA_ARGS
+          - name: AMQ_ANYCAST_PREFIX
+          - name: AMQ_MULTICAST_PREFIX
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          image: ${AMQ_BROKER_IMAGE}
+          imagePullPolicy: IfNotPresent
+          name: broker-amq
+          ports:
+          - containerPort: 8161
+            name: jolokia
+            protocol: TCP
+          - containerPort: 5672
+            name: amqp
+            protocol: TCP
+          - containerPort: 1883
+            name: mqtt
+            protocol: TCP
+          - containerPort: 61613
+            name: stomp
+            protocol: TCP
+          - containerPort: 61616
+            name: artemis
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - /bin/bash
+              - -c
+              - /opt/amq/bin/readinessProbe.sh
+            failureThreshold: 3
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /opt/amq/data
+            name: "${APPLICATION_NAME}-amq-pvol"
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 60
+    volumeClaimTemplates:
+    - metadata:
+        name: ${APPLICATION_NAME}-amq-pvol
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${AMQ_VOLUME_CAPACITY}
 ## PostgreSQL deployment config 1 BEGIN
 - kind: DeploymentConfig
   apiVersion: v1
