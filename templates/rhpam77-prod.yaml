@@ -499,6 +499,37 @@ parameters:
     description: Whether to add to the current roles, or replace the current roles with the mapped ones. Replaces if set to true.
     name: AUTH_ROLE_MAPPER_REPLACE_ROLE
     required: false
+  - displayName: AppFormer JMS Broker user name.
+    description: The user name for connecting to the JMS broker.
+    name: APPFORMER_JMS_BROKER_USER
+    required: true
+    value: jmsBrokerUser
+  - displayName: AppFormer JMS Broker password.
+    description: The password to connect to the JMS broker.
+    name: APPFORMER_JMS_BROKER_PASSWORD
+    from: "[a-zA-Z]{6}[0-9]{1}!"
+    generate: expression
+    required: true
+  - displayName: DataGrid Image
+    description: DataGrid image.
+    name: DATAGRID_IMAGE
+    value: registry.redhat.io/jboss-datagrid-7/datagrid73-openshift:1.5
+    required: true
+  - displayName: DataGrid Container CPU Limit
+    description: DataGrid Container CPU limit.
+    name: DATAGRID_CPU_LIMIT
+    value: "1000m"
+    required: true
+  - displayName: DataGrid Container Memory Limit
+    description: DataGrid Container memory limit.
+    name: DATAGRID_MEMORY_LIMIT
+    value: "2Gi"
+    required: true
+  - displayName: DataGrid Volume Capacity
+    description: Size of the persistent storage for DataGrid's runtime data.
+    name: DATAGRID_VOLUME_CAPACITY
+    value: "1Gi"
+    required: true
   ## AMQ BEGIN
   - description: AMQ Broker Image.
     displayName: Image
@@ -619,6 +650,39 @@ objects:
       annotations:
         service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
         description: "The JGroups ping port for clustering."
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: ${APPLICATION_NAME}-datagrid-ping
+      labels:
+        application: ${APPLICATION_NAME}
+      annotations:
+        description: "The JGroups ping port for clustering."
+        service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+    spec:
+      clusterIP: None
+      ports:
+      - name: ping
+        port: 8888
+        targetPort: 8888
+      selector:
+        deploymentConfig: ${APPLICATION_NAME}-datagrid
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: ${APPLICATION_NAME}-datagrid
+      labels:
+        application: ${APPLICATION_NAME}
+      annotations:
+        description: Provides a service for accessing the application over Hot Rod protocol.
+        service.alpha.openshift.io/serving-cert-secret-name: datagrid-service-certs
+    spec:
+      ports:
+      - name: hotrod
+        port: 11222
+        targetPort: 11222
+      selector:
+        deploymentConfig: ${APPLICATION_NAME}-datagrid
   - kind: Service
     apiVersion: v1
     spec:
@@ -892,6 +956,106 @@ objects:
         targetPort: https
       tls:
         termination: passthrough
+  - kind: StatefulSet
+    apiVersion: apps/v1
+    metadata:
+      name: ${APPLICATION_NAME}-datagrid
+      labels:
+        application: ${APPLICATION_NAME}
+    spec:
+      podManagementPolicy: OrderedReady
+      updateStrategy:
+        rollingUpdate:
+          partition: 0
+        type: RollingUpdate
+      replicas: 2
+      selector:
+        matchLabels:
+          deploymentConfig: ${APPLICATION_NAME}-datagrid
+      serviceName: ${APPLICATION_NAME}-datagrid
+      template:
+        metadata:
+          name: ${APPLICATION_NAME}-datagrid
+          labels:
+            application: ${APPLICATION_NAME}
+            deploymentConfig: ${APPLICATION_NAME}-datagrid
+        spec:
+          containers:
+          - env:
+            - name: SERVICE_NAME
+              value: ${APPLICATION_NAME}-datagrid
+            - name: SERVICE_PROFILE
+              value: ${APPLICATION_NAME}-datagrid
+            - name: JGROUPS_PING_PROTOCOL
+              value: openshift.DNS_PING
+            - name: OPENSHIFT_DNS_PING_SERVICE_NAME
+              value: ${APPLICATION_NAME}-datagrid-ping
+            - name: INFINISPAN_CONNECTORS
+              value: "hotrod"
+            image: ${DATAGRID_IMAGE}
+            imagePullPolicy: IfNotPresent
+            name: ${APPLICATION_NAME}-datagrid
+            ports:
+            - containerPort: 8888
+              name: ping
+              protocol: TCP
+            - containerPort: 11222
+              name: hotrod
+              protocol: TCP
+            livenessProbe:
+              exec:
+                command:
+                - /opt/datagrid/bin/livenessProbe.sh
+              failureThreshold: 5
+              initialDelaySeconds: 15
+              periodSeconds: 20
+              successThreshold: 1
+              timeoutSeconds: 10
+            readinessProbe:
+              exec:
+                command:
+                - /opt/datagrid/bin/readinessProbe.sh
+              failureThreshold: 5
+              initialDelaySeconds: 17
+              periodSeconds: 10
+              successThreshold: 1
+              timeoutSeconds: 10
+            resources:
+              limits:
+                cpu: ${DATAGRID_CPU_LIMIT}
+                memory: ${DATAGRID_MEMORY_LIMIT}
+              requests:
+                cpu: ${DATAGRID_CPU_LIMIT}
+                memory: ${DATAGRID_MEMORY_LIMIT}
+            volumeMounts:
+            - mountPath: /opt/datagrid/standalone/data
+              name: srv-data
+            - mountPath: /var/run/secrets/java.io/keystores
+              name: datagrid-keystore-volume
+            - mountPath: /var/run/secrets/openshift.io/serviceaccount
+              name: datagrid-service-certs
+          dnsPolicy: ClusterFirst
+          restartPolicy: Always
+          schedulerName: default-scheduler
+          securityContext: {}
+          terminationGracePeriodSeconds: 60
+          volumes:
+          - empty-dir: {}
+            name: datagrid-keystore-volume
+          - name: datagrid-service-certs
+            secret:
+              secretName: datagrid-service-certs
+      triggers:
+      - type: ConfigChange
+      volumeClaimTemplates:
+      - metadata:
+          name: srv-data
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: ${DATAGRID_VOLUME_CAPACITY}
   - kind: DeploymentConfig
     apiVersion: v1
     metadata:
@@ -1014,6 +1178,10 @@ objects:
                   value: "${APPLICATION_NAME}-rhpamcentrmon-ping"
                 - name: OPENSHIFT_DNS_PING_SERVICE_PORT
                   value: "8888"
+                - name: APPFORMER_INFINISPAN_SERVICE_NAME
+                  value: "${APPLICATION_NAME}-datagrid"
+                - name: APPFORMER_INFINISPAN_PORT
+                  value: "11222"
                 - name: APPFORMER_JMS_BROKER_ADDRESS
                   value: "${APPLICATION_NAME}-amq-tcp"
                 - name: APPFORMER_JMS_BROKER_PORT
